@@ -647,4 +647,11 @@ public class PhoneFactory {
         pw.flush();
         pw.decreaseIndent();
     }
+    //VENDOR_EDIT
+    /**@hide*/
+    public static PhoneSwitcher oemGetPhoneSwitcher()
+    {
+        return sPhoneSwitcher;
+    }
+    //end
 }
