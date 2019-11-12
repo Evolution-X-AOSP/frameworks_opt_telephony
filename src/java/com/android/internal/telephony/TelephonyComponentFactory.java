@@ -246,7 +246,7 @@ public class TelephonyComponentFactory {
      */
     public void injectTheComponentFactory(XmlResourceParser parser) {
         if (mInjectedComponents != null) {
-            Rlog.d(TAG, "Already injected.");
+            Rlog.i(TAG, "Already injected.");
             return;
         }
 

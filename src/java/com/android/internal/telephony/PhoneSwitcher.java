@@ -79,7 +79,6 @@ import java.util.concurrent.CompletableFuture;
 public class PhoneSwitcher extends Handler {
     protected static final String LOG_TAG = "PhoneSwitcher";
     protected static final boolean VDBG = false;
-
     private static final int DEFAULT_NETWORK_CHANGE_TIMEOUT_MS = 5000;
     private static final int MODEM_COMMAND_RETRY_PERIOD_MS     = 5000;
     // After the emergency call ends, wait for a few seconds to see if we enter ECBM before starting
@@ -668,6 +667,11 @@ public class PhoneSwitcher extends Handler {
 
     private void onRequestNetwork(NetworkRequest networkRequest) {
         final DcRequest dcRequest = new DcRequest(networkRequest, mContext);
+        if (networkRequest.type != NetworkRequest.Type.REQUEST) {
+           log("Skip non REQUEST type request - " + networkRequest);
+           return;
+        }
+
         if (!mPrioritizedDcRequests.contains(dcRequest)) {
             collectRequestNetworkMetrics(networkRequest);
             mPrioritizedDcRequests.add(dcRequest);
@@ -679,7 +683,8 @@ public class PhoneSwitcher extends Handler {
     private void onReleaseNetwork(NetworkRequest networkRequest) {
         final DcRequest dcRequest = new DcRequest(networkRequest, mContext);
 
-        if (mPrioritizedDcRequests.remove(dcRequest)) {
+        if (mPrioritizedDcRequests.contains(dcRequest) &&
+                mPrioritizedDcRequests.remove(dcRequest)) {
             onEvaluate(REQUESTS_CHANGED, "netReleased");
             collectReleaseNetworkMetrics(networkRequest);
         }
@@ -985,6 +990,11 @@ public class PhoneSwitcher extends Handler {
         return phoneId;
     }
 
+    protected int getSubIdFromNetworkRequest(NetworkRequest networkRequest) {
+        NetworkSpecifier specifier = networkRequest.networkCapabilities.getNetworkSpecifier();
+        return getSubIdFromNetworkSpecifier(specifier);
+    }
+
     protected int getSubIdFromNetworkSpecifier(NetworkSpecifier specifier) {
         if (specifier == null) {
             return DEFAULT_SUBSCRIPTION_ID;
@@ -1053,7 +1063,7 @@ public class PhoneSwitcher extends Handler {
         mPreferredDataSubId = mSubscriptionController.getSubIdUsingPhoneId(mPreferredDataPhoneId);
     }
 
-    private void transitionToEmergencyPhone() {
+    protected void transitionToEmergencyPhone() {
         if (mPreferredDataPhoneId != DEFAULT_EMERGENCY_PHONE_ID) {
             log("No active subscriptions: resetting preferred phone to 0 for emergency");
             mPreferredDataPhoneId = DEFAULT_EMERGENCY_PHONE_ID;

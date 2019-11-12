@@ -107,6 +107,7 @@ public class SubscriptionInfoUpdater extends Handler {
     protected static String mIccId[] = new String[PROJECT_SIM_NUM];
     private static int[] sSimCardState = new int[PROJECT_SIM_NUM];
     private static int[] sSimApplicationState = new int[PROJECT_SIM_NUM];
+    private boolean[] mIsRecordLoaded = new boolean[PROJECT_SIM_NUM];
     private static boolean sIsSubInfoInitialized = false;
     private SubscriptionManager mSubscriptionManager = null;
     private EuiccManager mEuiccManager;
@@ -154,6 +155,10 @@ public class SubscriptionInfoUpdater extends Handler {
 
         mCarrierServiceBindHelper = new CarrierServiceBindHelper(mContext);
         initializeCarrierApps();
+
+        for (int index = 0; index < PROJECT_SIM_NUM; index++) {
+            mIsRecordLoaded[index] = false;
+        }
     }
 
     private void initializeCarrierApps() {
@@ -444,6 +449,7 @@ public class SubscriptionInfoUpdater extends Handler {
             return;
         }
         mIccId[slotId] = IccUtils.stripTrailingFs(records.getFullIccId());
+        mIsRecordLoaded[slotId] = true;
 
         updateSubscriptionInfoByIccId(slotId, true /* updateEmbeddedSubs */);
         List<SubscriptionInfo> subscriptionInfos = SubscriptionController.getInstance()
@@ -513,6 +519,7 @@ public class SubscriptionInfoUpdater extends Handler {
                             Rlog.e(LOG_TAG, "Settings Exception Reading Value At Index for "
                                     + "Settings.Global.PREFERRED_NETWORK_MODE");
                         }
+
                         Settings.Global.putInt(
                                 mPhone[slotId].getContext().getContentResolver(),
                                 Global.PREFERRED_NETWORK_MODE + subId,
@@ -531,6 +538,20 @@ public class SubscriptionInfoUpdater extends Handler {
                     SharedPreferences.Editor editor = sp.edit();
                     editor.putInt(CURR_SUBID + slotId, subId);
                     editor.apply();
+                }
+
+                // Update set of enabled carrier apps now that the privilege rules may have changed.
+                CarrierAppUtils.disableCarrierAppsUntilPrivileged(mContext.getOpPackageName(),
+                        mPackageManager, TelephonyManager.getDefault(),
+                        mContext.getContentResolver(), mCurrentlyActiveUserId);
+
+                if (mIsRecordLoaded[slotId] == true) {
+                    broadcastSimStateChanged(slotId, IccCardConstants.
+                            INTENT_VALUE_ICC_LOADED, null);
+                    broadcastSimCardStateChanged(slotId, TelephonyManager.SIM_STATE_PRESENT);
+                    broadcastSimApplicationStateChanged(slotId, TelephonyManager.SIM_STATE_LOADED);
+                    updateCarrierServices(slotId, IccCardConstants.INTENT_VALUE_ICC_LOADED);
+                    mIsRecordLoaded[slotId] = false;
                 }
             }
         }
@@ -599,7 +620,7 @@ public class SubscriptionInfoUpdater extends Handler {
         updateCarrierServices(slotId, IccCardConstants.INTENT_VALUE_ICC_CARD_IO_ERROR);
     }
 
-    protected synchronized void updateSubscriptionInfoByIccId(int slotIndex,
+    synchronized protected void updateSubscriptionInfoByIccId(int slotIndex,
             boolean updateEmbeddedSubs) {
         logd("updateSubscriptionInfoByIccId:+ Start");
         if (!SubscriptionManager.isValidSlotIndex(slotIndex)) {
