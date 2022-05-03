@@ -875,6 +875,19 @@ public class SubscriptionController extends ISub.Stub {
     @Override
     public List<SubscriptionInfo> getAllSubInfoList(String callingPackage,
             String callingFeatureId) {
+        return getAllSubInfoList(callingPackage, callingFeatureId, false);
+    }
+
+    /**
+     * @param callingPackage The package making the IPC.
+     * @param callingFeatureId The feature in the package
+     * @param skipConditionallyRemoveIdentifier if set, skip removing identifier conditionally
+     * @return List of all SubscriptionInfo records in database,
+     * include those that were inserted before, maybe empty but not null.
+     * @hide
+     */
+    public List<SubscriptionInfo> getAllSubInfoList(String callingPackage,
+            String callingFeatureId, boolean skipConditionallyRemoveIdentifier) {
         if (VDBG) logd("[getAllSubInfoList]+");
 
         // This API isn't public, so no need to provide a valid subscription ID - we're not worried
@@ -893,9 +906,9 @@ public class SubscriptionController extends ISub.Stub {
         } finally {
             Binder.restoreCallingIdentity(identity);
         }
-        if (subList != null) {
+        if (subList != null && !skipConditionallyRemoveIdentifier) {
             if (VDBG) logd("[getAllSubInfoList]- " + subList.size() + " infos return");
-            subList.stream().map(
+            subList = subList.stream().map(
                     subscriptionInfo -> conditionallyRemoveIdentifiers(subscriptionInfo,
                             callingPackage, callingFeatureId, "getAllSubInfoList"))
                     .collect(Collectors.toList());
@@ -905,17 +918,11 @@ public class SubscriptionController extends ISub.Stub {
         return subList;
     }
 
-    private List<SubscriptionInfo> makeCacheListCopyWithLock(List<SubscriptionInfo> cacheSubList) {
-        synchronized (mSubInfoListLock) {
-            return new ArrayList<>(cacheSubList);
-        }
-    }
-
     @Deprecated
     @UnsupportedAppUsage
     public List<SubscriptionInfo> getActiveSubscriptionInfoList(String callingPackage) {
         return getSubscriptionInfoListFromCacheHelper(callingPackage, null,
-                makeCacheListCopyWithLock(mCacheActiveSubInfoList));
+                mCacheActiveSubInfoList);
     }
 
     /**
@@ -929,7 +936,7 @@ public class SubscriptionController extends ISub.Stub {
     public List<SubscriptionInfo> getActiveSubscriptionInfoList(String callingPackage,
             String callingFeatureId) {
         return getSubscriptionInfoListFromCacheHelper(callingPackage, callingFeatureId,
-                makeCacheListCopyWithLock(mCacheActiveSubInfoList));
+                mCacheActiveSubInfoList);
     }
 
     /**
@@ -3321,8 +3328,8 @@ public class SubscriptionController extends ISub.Stub {
     @Override
     public List<SubscriptionInfo> getOpportunisticSubscriptions(String callingPackage,
             String callingFeatureId) {
-        return getSubscriptionInfoListFromCacheHelper(callingPackage, callingFeatureId,
-                makeCacheListCopyWithLock(mCacheOpportunisticSubInfoList));
+        return getSubscriptionInfoListFromCacheHelper(
+                callingPackage, callingFeatureId, mCacheOpportunisticSubInfoList);
     }
 
     /**
@@ -3687,8 +3694,10 @@ public class SubscriptionController extends ISub.Stub {
         List<SubscriptionInfo> subInfoList;
 
         try {
+            // need to bypass removing identifier check because that will remove the subList without
+            // group id.
             subInfoList = getAllSubInfoList(mContext.getOpPackageName(),
-                    mContext.getAttributionTag());
+                    mContext.getAttributionTag(), true);
             if (groupUuid == null || subInfoList == null || subInfoList.isEmpty()) {
                 return new ArrayList<>();
             }
