@@ -59,6 +59,7 @@ import android.telephony.UiccAccessRule;
 import android.telephony.UiccSlotInfo;
 import android.telephony.euicc.EuiccManager;
 import android.text.TextUtils;
+import android.util.EventLog;
 import android.util.LocalLog;
 import android.util.Log;
 
@@ -886,18 +887,22 @@ public class SubscriptionController extends ISub.Stub {
 
         // Now that all security checks passes, perform the operation as ourselves.
         final long identity = Binder.clearCallingIdentity();
+        List<SubscriptionInfo> subList;
         try {
-            List<SubscriptionInfo> subList = null;
             subList = getSubInfo(null, null);
-            if (subList != null) {
-                if (VDBG) logd("[getAllSubInfoList]- " + subList.size() + " infos return");
-            } else {
-                if (VDBG) logd("[getAllSubInfoList]- no info return");
-            }
-            return subList;
         } finally {
             Binder.restoreCallingIdentity(identity);
         }
+        if (subList != null) {
+            if (VDBG) logd("[getAllSubInfoList]- " + subList.size() + " infos return");
+            subList.stream().map(
+                    subscriptionInfo -> conditionallyRemoveIdentifiers(subscriptionInfo,
+                            callingPackage, callingFeatureId, "getAllSubInfoList"))
+                    .collect(Collectors.toList());
+        } else {
+            if (VDBG) logd("[getAllSubInfoList]- no info return");
+        }
+        return subList;
     }
 
     private List<SubscriptionInfo> makeCacheListCopyWithLock(List<SubscriptionInfo> cacheSubList) {
@@ -1051,12 +1056,18 @@ public class SubscriptionController extends ISub.Stub {
     @Override
     public List<SubscriptionInfo> getAvailableSubscriptionInfoList(String callingPackage,
             String callingFeatureId) {
-        // This API isn't public, so no need to provide a valid subscription ID - we're not worried
-        // about carrier-privileged callers not having access.
-        if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(
-                mContext, SubscriptionManager.INVALID_SUBSCRIPTION_ID, callingPackage,
-                callingFeatureId, "getAvailableSubscriptionInfoList")) {
-            throw new SecurityException("Need READ_PHONE_STATE to call "
+        try {
+            enforceReadPrivilegedPhoneState("getAvailableSubscriptionInfoList");
+        } catch (SecurityException e) {
+            try {
+                mContext.enforceCallingOrSelfPermission(Manifest.permission.READ_PHONE_STATE, null);
+                // If caller doesn't have READ_PRIVILEGED_PHONE_STATE permission but only
+                // has READ_PHONE_STATE permission, log this event.
+                EventLog.writeEvent(0x534e4554, "185235454", Binder.getCallingUid());
+            } catch (SecurityException ex) {
+                // Ignore
+            }
+            throw new SecurityException("Need READ_PRIVILEGED_PHONE_STATE to call "
                     + " getAvailableSubscriptionInfoList");
         }
 
@@ -4074,6 +4085,7 @@ public class SubscriptionController extends ISub.Stub {
         if (!hasIdentifierAccess) {
             result.clearIccId();
             result.clearCardString();
+            result.clearGroupUuid();
         }
         if (!hasPhoneNumberAccess) {
             result.clearNumber();
